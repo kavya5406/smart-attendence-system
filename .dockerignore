@@ -1,0 +1,36 @@
+# Keep the build context small and free of anything sensitive.
+.git/
+.github/
+.gitignore
+.env
+*.md
+notebooks/
+mlruns/
+model_registry/
+monitoring/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.pytest_cache/
+.coverage
+
+# Node
+node_modules/
+frontend/node_modules/
+# The frontend is compiled inside the image, never copied from the host.
+frontend/dist/
+
+# Data: face images and databases are runtime state, never build inputs.
+data/
+data/raw/
+data/processed/
+data/database/
+
+# OS noise
+.DS_Store
+._*
+__MACOSX/

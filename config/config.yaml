@@ -1,0 +1,110 @@
+data:
+  raw_dir: data/raw
+  processed_dir: data/processed
+  database_path: data/database/attendance.db
+
+preprocessing:
+  target_size: [64, 64]
+  face_detection_model: "haarcascade_frontalface_default.xml"
+  use_dlib_detector: true
+  apply_hist_equalization: true
+  apply_gaussian_blur: true
+  blur_kernel_size: 3
+
+features:
+  hog:
+    orientations: 9
+    pixels_per_cell: [8, 8]
+    cells_per_block: [2, 2]
+  lbp:
+    radius: 1
+    n_points: 8
+    method: "uniform"
+  landmarks:
+    model_path: "shape_predictor_68_face_landmarks.dat"
+    use_landmarks: true
+  geometric:
+    enabled: true
+  statistical:
+    enabled: true
+  shape:
+    enabled: true
+
+feature_selection:
+  correlation_threshold: 0.95
+  variance_threshold: 0.01
+  use_pca: false
+  pca_variance_ratio: 0.95
+
+model_training:
+  test_size: 0.2
+  val_size: 0.2
+  random_state: 42
+  cv_folds: 5
+  scoring: "f1_weighted"
+  n_iter_search: 10
+  models:
+    - random_forest
+    - xgboost
+    - lightgbm
+    - logistic_regression
+    - knn
+
+hyperparameter_grids:
+  random_forest:
+    n_estimators: [100, 200, 300, 500]
+    max_depth: [10, 20, 30, null]
+    min_samples_split: [2, 5, 10]
+    min_samples_leaf: [1, 2, 4]
+    max_features: ["sqrt", "log2"]
+  xgboost:
+    n_estimators: [100, 200, 300]
+    max_depth: [3, 5, 7, 10]
+    learning_rate: [0.01, 0.05, 0.1, 0.2]
+    subsample: [0.6, 0.8, 1.0]
+    colsample_bytree: [0.6, 0.8, 1.0]
+    gamma: [0, 0.1, 0.2]
+    reg_alpha: [0, 0.1, 1.0]
+    reg_lambda: [0, 0.1, 1.0]
+  lightgbm:
+    n_estimators: [100, 200, 300]
+    max_depth: [-1, 10, 20, 30]
+    learning_rate: [0.01, 0.05, 0.1, 0.2]
+    num_leaves: [31, 50, 100]
+    subsample: [0.6, 0.8, 1.0]
+    colsample_bytree: [0.6, 0.8, 1.0]
+    reg_alpha: [0, 0.1, 1.0]
+    reg_lambda: [0, 0.1, 1.0]
+  catboost:
+    iterations: [100, 200, 300]
+    depth: [4, 6, 8, 10]
+    learning_rate: [0.01, 0.05, 0.1, 0.2]
+    l2_leaf_reg: [1, 3, 5, 7]
+    border_count: [32, 64, 128]
+  decision_tree:
+    max_depth: [5, 10, 15, 20, null]
+    min_samples_split: [2, 5, 10]
+    min_samples_leaf: [1, 2, 4]
+    max_features: [null, "sqrt", "log2"]
+    criterion: ["gini", "entropy"]
+  logistic_regression:
+    C: [0.001, 0.01, 0.1, 1, 10, 100]
+    penalty: ["l2"]
+    solver: ["lbfgs", "saga"]
+    max_iter: [1000, 2000, 5000]
+  knn:
+    n_neighbors: [3, 5, 7, 9, 11, 15]
+    weights: ["uniform", "distance"]
+    metric: ["euclidean", "manhattan", "minkowski"]
+
+api:
+  host: "0.0.0.0"
+  port: 8000
+  model_path: "models/best_model.pkl"
+  scaler_path: "models/scaler.pkl"
+  selector_path: "models/feature_selector.pkl"
+
+mlflow:
+  tracking_uri: "sqlite:///mlruns/mlflow.db"
+  experiment_name: "Smart_Attendance_System"
+  run_name_prefix: "face_recognition"

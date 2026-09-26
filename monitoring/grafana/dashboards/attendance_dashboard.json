@@ -1,0 +1,75 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "title": "Total Predictions",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(prometheus_multiproc_metric_count) or sum(http_requests_total) or 0",
+          "legendFormat": "Total"
+        }
+      ],
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "value": 0, "color": "green" }] } } }
+    },
+    {
+      "title": "Prediction Confidence",
+      "type": "gauge",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "avg(http_request_duration_seconds_sum / http_request_duration_seconds_count) or 0",
+          "legendFormat": "Confidence"
+        }
+      ],
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 }
+    },
+    {
+      "title": "Request Rate",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total[5m]))",
+          "legendFormat": "Requests/s"
+        }
+      ],
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 6 }
+    },
+    {
+      "title": "Attendance Marked",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(http_requests_total{endpoint=\"/predict\"}) or 0",
+          "legendFormat": "Predictions"
+        }
+      ],
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 0 }
+    },
+    {
+      "title": "System Status",
+      "type": "text",
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 6 },
+      "options": {
+        "mode": "markdown",
+        "content": "## Smart Attendance System\n\n**Backend:** http://app:8000\n**MLflow:** http://mlflow:5000\n**Prometheus:** http://prometheus:9090"
+      }
+    }
+  ],
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["attendance", "ml"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1h", "to": "now" },
+  "title": "Smart Attendance System Dashboard",
+  "uid": "attendance-dashboard"
+}
