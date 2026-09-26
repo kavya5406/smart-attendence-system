@@ -26,11 +26,39 @@ if str(ROOT) not in sys.path:
 SANDBOX = Path(tempfile.mkdtemp(prefix="sas-tests-"))
 DATASET_DIR = SANDBOX / "raw"
 
+def _has_images(path: Path) -> bool:
+    return any(p.suffix.lower() in (".jpg", ".jpeg", ".png", ".bmp") for p in path.rglob("*"))
+
+
+def _synthesise_dataset(target: Path) -> None:
+    """Create a small stand-in dataset so the suite runs without real faces.
+
+    ``data/raw`` is git-ignored, so a fresh clone (and CI) has no images. The
+    tests that need *a* dataset get deterministic synthetic frames instead of
+    being skipped. These are noise patterns, not real faces, and they are only
+    ever written to the temporary sandbox.
+    """
+    import cv2
+    import numpy as np
+
+    rng = np.random.default_rng(1234)
+    for index, student in enumerate(("S0001", "S0002", "S0003")):
+        folder = target / student
+        folder.mkdir(parents=True)
+        base = rng.integers(60, 200, size=(48, 48, 3), dtype=np.uint8)
+        for shot in range(4):
+            frame = np.clip(base.astype(np.int16) + rng.integers(-12, 12, base.shape), 0, 255)
+            frame[:, :, index % 3] = np.clip(frame[:, :, index % 3] + 30, 0, 255)
+            cv2.imwrite(str(folder / f"frame_{shot}.jpg"), frame.astype(np.uint8))
+
+
 _source_raw = ROOT / "data" / "raw"
-if _source_raw.is_dir():
+if _source_raw.is_dir() and _has_images(_source_raw):
     shutil.copytree(_source_raw, DATASET_DIR)
-else:  # pragma: no cover - only when the project ships without a dataset
-    DATASET_DIR.mkdir(parents=True)
+    SYNTHETIC = False
+else:
+    _synthesise_dataset(DATASET_DIR)
+    SYNTHETIC = True
 
 os.environ["DATABASE_URL"] = f"sqlite:///{(SANDBOX / 'test.db').as_posix()}"
 os.environ["DATASET_PATH"] = str(DATASET_DIR)
@@ -44,6 +72,12 @@ def sandbox() -> Path:
 @pytest.fixture(scope="session")
 def dataset_dir() -> Path:
     return DATASET_DIR
+
+
+@pytest.fixture(scope="session")
+def synthetic_dataset() -> bool:
+    """True when the sandbox uses generated frames instead of real images."""
+    return SYNTHETIC
 
 
 @pytest.fixture(scope="session")
