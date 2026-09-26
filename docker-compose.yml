@@ -1,0 +1,48 @@
+# Single-origin setup: FastAPI serves the API under /api and the compiled React
+# app for every other path, so the whole system is reachable on one URL
+# (http://localhost:8000). That is also what makes the browser camera work in
+# production, because getUserMedia needs a secure context.
+#
+#   docker compose up --build
+#
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: smart-attendance
+    ports:
+      - "8000:8000"
+    volumes:
+      # Runtime state: the SQLite database and the registered face images.
+      - ./data:/app/data
+    environment:
+      - FRONTEND_URL=http://localhost:8000
+      - DATABASE_URL=sqlite:////app/data/database/attendance.db
+      - DATASET_PATH=/app/data/raw
+      - RECOGNITION_THRESHOLD=0.08
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4).status == 200 else 1)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+  # Optional experiment tracking. The app works with this disabled.
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.16.0
+    container_name: attendance-mlflow
+    profiles: ["observability"]
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./mlruns:/mlflow
+    command: >
+      mlflow server --host 0.0.0.0 --port 5000
+      --backend-store-uri sqlite:///mlflow/mlflow.db
+      --default-artifact-root /mlflow/artifacts

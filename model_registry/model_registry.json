@@ -1,0 +1,61 @@
+{
+  "models": [
+    {
+      "version": "20260729_221426",
+      "model_name": "logistic_regression",
+      "path": "models/best_model.pkl",
+      "hash": "9bde47b3c4c0babf68530931a41ba53c31c78c042b2191d5ff3652f129dee24e",
+      "timestamp": "2026-07-29T22:14:26.578955",
+      "metrics": {
+        "model": "logistic_regression",
+        "accuracy": 0.3333333333333333,
+        "precision_macro": 0.375021645021645,
+        "recall_macro": 0.3333333333333333,
+        "f1_macro": 0.33374285844874085,
+        "precision_weighted": 0.37502164502164503,
+        "recall_weighted": 0.3333333333333333,
+        "f1_weighted": 0.3337428584487408
+      },
+      "params": {}
+    },
+    {
+      "version": "20260729_224551",
+      "model_name": "logistic_regression",
+      "path": "models/best_model.pkl",
+      "hash": "9bde47b3c4c0babf68530931a41ba53c31c78c042b2191d5ff3652f129dee24e",
+      "timestamp": "2026-07-29T22:45:51.256527",
+      "metrics": {
+        "model": "logistic_regression",
+        "accuracy": 0.3333333333333333,
+        "precision_macro": 0.375021645021645,
+        "recall_macro": 0.3333333333333333,
+        "f1_macro": 0.33374285844874085,
+        "precision_weighted": 0.37502164502164503,
+        "recall_weighted": 0.3333333333333333,
+        "f1_weighted": 0.3337428584487408
+      },
+      "params": {}
+    },
+    {
+      "version": "20260805_095312",
+      "model_name": "logistic_regression",
+      "path": "models/best_model.pkl",
+      "hash": "9bde47b3c4c0babf68530931a41ba53c31c78c042b2191d5ff3652f129dee24e",
+      "timestamp": "2026-08-05T09:53:12.828408",
+      "metrics": {
+        "model": "logistic_regression",
+        "accuracy": 0.3333333333333333,
+        "precision_macro": 0.375021645021645,
+        "recall_macro": 0.3333333333333333,
+        "f1_macro": 0.33374285844874085,
+        "precision_weighted": 0.37502164502164503,
+        "recall_weighted": 0.3333333333333333,
+        "f1_weighted": 0.3337428584487408
+      },
+      "params": {}
+    }
+  ],
+  "latest": {
+    "logistic_regression": "20260805_095312"
+  }
+}

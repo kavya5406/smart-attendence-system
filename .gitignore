@@ -1,4 +1,82 @@
-venv/
-__pycache__/
+# macOS
+.DS_Store
+._*
+**/.DS_Store
+**/._*
+__MACOSX/
+**/__MACOSX/
+
+# Windows
+Thumbs.db
+desktop.ini
+*.lnk
+
+# Linux
+*~
+
+# Python
 *.pyc
-models/
+__pycache__/
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Environment variables
+.env
+
+# IDE
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# Node.js
+node_modules/
+npm-debug.log*
+
+# Vite build output
+frontend/dist/
+
+# Database
+data/database/*.db
+
+# MLflow
+mlruns/
+
+# Logs
+*.log
+logs/
+
+# Temporary
+tmp/
+temp/
+*.tmp
+
+# ---------------------------------------------------------------------------
+# Biometric data must never be committed
+# ---------------------------------------------------------------------------
+# Face images are personal data. Register them through the app at runtime
+# (Dataset page / POST /api/students/upload-zip) instead of committing them.
+data/raw/
+data/processed/
+dataset/
+*_raw/
+*_faces/
+*_faces_Dataset/
+
+# Derived per-identity feature prototypes (rebuilt from the dataset on startup)
+models/prototypes.npz
+
+# Test and tooling artefacts
+.pytest_cache/
+.coverage
+htmlcov/

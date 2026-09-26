@@ -1,0 +1,14 @@
+{
+  "measured_on": "registered dataset in data/raw",
+  "registered_images": 150,
+  "negative_samples": 48,
+  "classifier_top1_accuracy": 0.5867,
+  "prototype_top1_accuracy": 0.9667,
+  "prototype_acceptance_rate_on_registered": 0.9733,
+  "false_acceptance_rate_on_negatives": 0.0,
+  "similarity_auc_registered_vs_negative": 1.0,
+  "recognition_threshold": 0.08,
+  "registered_similarity_min": 0.0498,
+  "registered_similarity_mean": 0.1794,
+  "negative_similarity_max": 0.0466
+}
