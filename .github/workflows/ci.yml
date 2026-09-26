@@ -23,6 +23,14 @@ jobs:
         run: pip install -r requirements.txt
       - name: Install OpenCV system libraries
         run: sudo apt-get update && sudo apt-get install -y libgl1 libglib2.0-0
+      - name: Build the frontend
+        # The SPA tests assert the real behaviour of the served pages, so CI
+        # builds the bundle the same way production does.
+        run: |
+          cd frontend
+          npm ci --no-audit --no-fund
+          npm run build
+          cd ..
       - name: Byte-compile the package
         run: python -m compileall -q src
       - name: Run the test suite

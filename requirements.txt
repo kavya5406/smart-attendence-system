@@ -1,6 +1,11 @@
-numpy>=1.26.0
-scipy>=1.14.0
-scikit-learn>=1.5.0
+# The trained artifacts in models/ were pickled with these exact versions.
+# scikit-learn is pinned hard: unpickling a StandardScaler/LogisticRegression
+# across major versions raises InconsistentVersionWarning and can fail outright,
+# which silently leaves the app with no model. Do not loosen this pin without
+# re-running scripts/measure_inference.py.
+numpy>=2.0,<3
+scipy>=1.16,<2
+scikit-learn==1.7.2
 scikit-image>=0.24.0
 opencv-python>=4.10.0
 opencv-contrib-python>=4.10.0
@@ -10,7 +15,7 @@ lightgbm>=4.5.0
 catboost>=1.2.7
 
 mlflow>=2.16.0
-joblib>=1.4.0
+joblib>=1.4.0,<2
 
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0

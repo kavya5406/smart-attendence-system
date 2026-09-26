@@ -59,6 +59,14 @@ Reproduce with:
 python3 scripts/measure_inference.py    # writes models/verification_metrics.json
 ```
 
+**The threshold is dataset-specific.** `0.08` was measured against this dataset.
+If you register a different set of faces, re-run `scripts/measure_inference.py`
+and adjust `RECOGNITION_THRESHOLD` to suit. With prototypes that carry little
+information (for example the generated placeholder frames the test suite falls
+back to when `data/raw` is empty) a fixed threshold cannot separate a real face
+from noise, and unknown faces will be accepted. The test suite reflects this: the
+unknown-rejection tests only run against a real dataset.
+
 These are measurements of the existing artifacts, not target or invented numbers.
 Because the classifier is only 58.7% accurate on its own, **the recorded identity
 comes from the verification step**; the model output is still reported alongside it.
@@ -180,6 +188,14 @@ Face images are biometric personal data.
 
 Before deploying with real faces, make sure the storage behind it is access
 controlled, and get consent from the people in the dataset.
+
+## Dependency pinning
+
+`requirements.txt` pins `scikit-learn==1.7.2`, the version the artifacts in
+`models/` were pickled with. Unpickling a `StandardScaler` or `LogisticRegression`
+across scikit-learn versions can fail outright and leave the app running with no
+model, so do not loosen that pin without re-running
+`scripts/measure_inference.py` and re-checking the numbers above.
 
 ## Configuration
 
