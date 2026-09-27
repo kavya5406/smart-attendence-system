@@ -2,6 +2,8 @@ import cv2
 import numpy as np
 from typing import List, Optional, Tuple
 
+from ..preprocessing.cascade_locator import load_cascade
+
 
 class LandmarkFeatureExtractor:
     def __init__(self, predictor_path: str = "shape_predictor_68_face_landmarks.dat"):
@@ -34,10 +36,10 @@ class LandmarkFeatureExtractor:
 
     def _get_landmarks_cv2(self, image: np.ndarray) -> Optional[np.ndarray]:
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if len(image.shape) == 3 else image
-        face_cascade = cv2.CascadeClassifier(
-            cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-        )
-        faces = face_cascade.detectMultiScale(gray, 1.1, 5, minSize=(50, 50))
+        cascade = load_cascade("haarcascade_frontalface_default.xml")
+        if cascade is None:
+            return None
+        faces = cascade.detectMultiScale(gray, 1.1, 5, minSize=(50, 50))
         if len(faces) == 0:
             return None
         return None

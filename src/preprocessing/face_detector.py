@@ -12,10 +12,13 @@ recognition accuracy.
 
 from __future__ import annotations
 
+import warnings
 from typing import List, Optional, Tuple
 
 import cv2
 import numpy as np
+
+from .cascade_locator import resolve_cascade
 
 BBox = Tuple[int, int, int, int]
 
@@ -39,6 +42,17 @@ class FaceDetector:
         cascade_file = self._resolve_cascade(cascade_path)
         if cascade_file is not None:
             self.face_cascade = cv2.CascadeClassifier(cascade_file)
+        else:
+            # Detection is unavailable. Say so, rather than handing back an
+            # empty CascadeClassifier that fails silently at inference time.
+            self.face_cascade = None
+            warnings.warn(
+                f"Haar cascade {cascade_path!r} could not be located. Face "
+                "detection is disabled and every frame will be classified "
+                "whole. Check src/preprocessing/cascades/.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
 
         if use_dlib:
             try:  # pragma: no cover - optional dependency
@@ -52,18 +66,13 @@ class FaceDetector:
     def _resolve_cascade(cascade_path: str) -> Optional[str]:
         """Return a usable path to the Haar cascade XML.
 
-        Looks first next to the project, then falls back to the copy bundled
-        inside the installed OpenCV package. This keeps the project portable
-        without requiring the XML to be vendored.
+        Delegates to :mod:`src.preprocessing.cascade_locator`, which prefers the
+        copy vendored inside the package. ``cv2.data.haarcascades`` alone is
+        not reliable: installing both ``opencv-python`` and
+        ``opencv-contrib-python`` can leave ``cv2/data`` incomplete, which
+        silently disables face detection on a fresh Linux machine.
         """
-        candidate = cv2.data.haarcascades + cascade_path
-        try:
-            probe = cv2.CascadeClassifier(candidate)
-            if not probe.empty():
-                return candidate
-        except Exception:
-            pass
-        return None
+        return resolve_cascade(cascade_path)
 
     # ------------------------------------------------------------------
     # detection
