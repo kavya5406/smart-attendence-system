@@ -174,10 +174,23 @@ jobs:
       - name: Smoke-test the container
         run: |
           docker run -d --name sas-ci -p 8000:8000 smart-attendance:ci
+          ready=""
           for i in $(seq 1 40); do
             sleep 2
-            if curl -fsS http://127.0.0.1:8000/health > /dev/null; then break; fi
+            if curl -fsS http://127.0.0.1:8000/health > /dev/null 2>&1; then ready=1; break; fi
+            # Fail fast if the container died instead of burning 80s of retries.
+            if [ "$(docker inspect -f '{{.State.Running}}' sas-ci 2>/dev/null)" != "true" ]; then
+              echo "::error::container exited during startup"
+              break
+            fi
           done
+          if [ -z "$ready" ]; then
+            echo "::group::container logs"
+            docker logs sas-ci 2>&1 | tail -60
+            echo "::endgroup::"
+            docker rm -f sas-ci
+            exit 1
+          fi
           curl -fsS http://127.0.0.1:8000/health
           echo
           curl -fsS http://127.0.0.1:8000/api/health

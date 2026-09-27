@@ -18,7 +18,7 @@ from typing import List, Optional, Tuple
 import cv2
 import numpy as np
 
-from .cascade_locator import resolve_cascade
+from .cascade_locator import load_cascade, resolve_cascade
 
 BBox = Tuple[int, int, int, int]
 
@@ -40,16 +40,19 @@ class FaceDetector:
         self.face_cascade = None
 
         cascade_file = self._resolve_cascade(cascade_path)
-        if cascade_file is not None:
-            self.face_cascade = cv2.CascadeClassifier(cascade_file)
-        else:
-            # Detection is unavailable. Say so, rather than handing back an
-            # empty CascadeClassifier that fails silently at inference time.
-            self.face_cascade = None
+        # load_cascade() returns None instead of an empty classifier, and it
+        # swallows the case where the OpenCV build has no CascadeClassifier at
+        # all (OpenCV 5.0 removed the legacy Haar API). FaceDetector() is built
+        # during app startup, so a raw cv2.CascadeClassifier(...) call here
+        # used to take the whole API down with an AttributeError.
+        self.face_cascade = load_cascade(cascade_path) if cascade_file else None
+        if self.face_cascade is None:
             warnings.warn(
-                f"Haar cascade {cascade_path!r} could not be located. Face "
+                f"Haar cascade {cascade_path!r} is unavailable, so face "
                 "detection is disabled and every frame will be classified "
-                "whole. Check src/preprocessing/cascades/.",
+                "whole. This means OpenCV's CascadeClassifier is missing "
+                "(OpenCV 5.0 removed it) or the vendored XML under "
+                "src/preprocessing/cascades/ is gone.",
                 RuntimeWarning,
                 stacklevel=2,
             )
