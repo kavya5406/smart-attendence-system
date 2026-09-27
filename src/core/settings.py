@@ -106,6 +106,22 @@ class Settings:
     # models/verification_metrics.json.
     recognition_threshold: float = 0.08
 
+    # What to do when the detector finds no face.
+    #
+    # Measured on the registered dataset: Haar detects a face in 0 of 150
+    # images, so every training feature was computed from a WHOLE 128x128
+    # frame, never from a face crop. Inference therefore has to keep the same
+    # fallback to stay in-distribution, which is what "whole_frame" does and
+    # why it is the default.
+    #
+    # "require_face" rejects such frames with status "no_face_detected" and
+    # never marks attendance. That is the safer posture, but it only works
+    # once the registered dataset is re-captured with detectable faces -
+    # otherwise recall collapses, because the model has never seen a crop.
+    # Set FACE_POLICY=require_face to switch, then re-measure with
+    # scripts/measure_inference.py before trusting any number.
+    face_policy: str = "whole_frame"
+
     raw: Dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -145,6 +161,10 @@ def get_settings() -> Settings:
     except ValueError:
         threshold_value = 0.08
 
+    face_policy = (_env("FACE_POLICY") or "whole_frame").strip().lower()
+    if face_policy not in ("whole_frame", "require_face"):
+        face_policy = "whole_frame"
+
     return Settings(
         config_path=config_file,
         dataset_path=resolve_path(_env("DATASET_PATH") or data_cfg.get("raw_dir"), BASE_DIR / "data" / "raw"),
@@ -173,6 +193,7 @@ def get_settings() -> Settings:
             if origin.strip()
         ],
         recognition_threshold=threshold_value,
+        face_policy=face_policy,
         raw=raw,
     )
 

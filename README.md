@@ -59,6 +59,45 @@ Reproduce with:
 python3 scripts/measure_inference.py    # writes models/verification_metrics.json
 ```
 
+### Read these numbers honestly
+
+**The table above is in-sample.** It is measured on `data/raw`, which is the same
+150 images the shipped model was trained on, and the prototype cache is built
+from those same images. It therefore answers "does the pipeline recognise the
+images it was built from?", not "does it recognise a new photograph?". Do not
+quote 96.7% as a generalisation result.
+
+A real 60/20/20 stratified run of the training pipeline on the same data
+(`python3 train.py --output-dir <dir>`, test split never used for model
+selection) gives:
+
+| Split | Images | Classifier accuracy | Weighted F1 |
+| --- | --- | --- | --- |
+| Train | 90 | — | — |
+| Validation | 30 | 33.3% | 33.3% |
+| **Test (held out)** | **30** | **13.3%** | **13.3%** |
+
+The honest summary: **this feature pipeline does not generalise well to unseen
+faces with the current 150-image dataset.** 5 students x 30 tightly-cropped
+128x128 images is very little data for a 1805-dimensional handcrafted feature
+space, and the held-out classifier is close to the 20% chance baseline for
+5 classes.
+
+What actually works better in practice, and what the verification step buys you,
+is **re-registration**: every image added through the Dataset page extends that
+student's prototype set, so a student is recognised reliably against the exact
+images captured for them. The `similarity` score and threshold are what govern
+attendance, and unknown faces are rejected (`0 / 48` above) because their
+similarity does not reach the threshold - not because the classifier is accurate.
+
+To improve generalisation, in rough order of impact:
+
+1. Capture more images per student, ideally 20+ at higher resolution, from
+   varied angles and lighting (`python3 train.py --output-dir <dir>` retrains).
+2. Re-capture so faces are actually **detectable** (see the face-detection note
+   below - the current dataset has none, so training uses whole frames).
+3. Raise image resolution: 64x64 discards most facial detail.
+
 **The threshold is dataset-specific.** `0.08` was measured against this dataset.
 If you register a different set of faces, re-run `scripts/measure_inference.py`
 and adjust `RECOGNITION_THRESHOLD` to suit. With prototypes that carry little
@@ -67,9 +106,8 @@ back to when `data/raw` is empty) a fixed threshold cannot separate a real face
 from noise, and unknown faces will be accepted. The test suite reflects this: the
 unknown-rejection tests only run against a real dataset.
 
-These are measurements of the existing artifacts, not target or invented numbers.
-Because the classifier is only 58.7% accurate on its own, **the recorded identity
-comes from the verification step**; the model output is still reported alongside it.
+Because the classifier is weak on unseen data, **the recorded identity comes from
+the verification step**; the model output is still reported alongside it.
 
 ## Requirements
 
@@ -124,14 +162,41 @@ is a single origin and a single URL.
 ## Tests
 
 ```bash
-python -m pytest tests/ -q
+python -m pytest tests/ -q     # backend: 108 passed
+cd frontend && npm test        # frontend: 19 passed
+ruff check .                   # critical lint rules
+cd frontend && npm run build
 ```
 
 Tests run against a temporary copy of the dataset, a temporary SQLite database and a
 temporary prototype cache, so the real `data/` directory and `models/prototypes.npz`
 are never touched. They cover the database (including duplicate prevention), the
 dataset manager, preprocessing and feature finiteness, the model stack, the verifier's
-unknown-face rejection, and the full API including the camera upload path.
+unknown-face rejection, the training split and its leakage guards, and the full API
+including the camera upload path. No test needs a real student image or a private
+credential: a small non-biometric dataset is synthesised when `data/raw` is empty, and
+the tests that genuinely require real faces skip themselves with a reason.
+
+## CI/CD
+
+`.github/workflows/ci.yml` runs on every push and pull request to `main`:
+
+- **backend** - install, build the frontend, `ruff check .`, byte-compile, then
+  explicitly validate the preprocessing pipeline, the 1805-feature extractor, the
+  model artifacts (selector output width vs `model.n_features_in_`), the API import,
+  the training entry point, and the full pytest suite. Fails if any image, dataset
+  folder or database is tracked in git.
+- **frontend** - `npm ci`, `npm test`, `npm run build`, then fails if the built
+  bundle contains a hardcoded `localhost:8000`.
+- **docker** - builds `docker/Dockerfile` with Buildx on a clean runner, validates
+  the compose file, boots the container and curls `/health`, `/api/health`, the SPA
+  and `/metrics`.
+
+`.github/workflows/cd.yml` publishes the validated image to GitHub Container
+Registry on a `v*` tag (or manually). It refuses to publish unless CI passed for
+that exact commit, authenticates with the automatic `GITHUB_TOKEN`, and requests
+only `contents: read` + `packages: write`. No registry password, API key or
+deployment secret is stored in the repository.
 
 ## API
 
@@ -155,6 +220,7 @@ All endpoints live under `/api`.
 | GET | `/api/dashboard/stats` | dashboard counters |
 | GET | `/api/stats/predictions` | recognition statistics |
 | GET | `/metrics` | Prometheus metrics |
+| GET | `/health`, `/dashboard/stats` | root aliases of the two non-conflicting read-only endpoints |
 | GET | `/docs` | interactive API documentation |
 
 ## Registering students
@@ -208,8 +274,72 @@ the same file works on macOS, Windows and Linux. The main values:
 | `DATABASE_URL` | sqlite in `data/database` | SQLite or PostgreSQL |
 | `MODEL_PATH`, `SCALER_PATH`, `FEATURE_SELECTOR_PATH`, `LABEL_ENCODER_PATH` | `models/*` | existing trained artifacts |
 | `RECOGNITION_THRESHOLD` | `0.08` | similarity needed to record attendance |
+| `FACE_POLICY` | `whole_frame` | `whole_frame` or `require_face` (see below) |
+| `ENVIRONMENT` | `development` | `production` restricts CORS to the listed origins |
+| `API_BASE_URL` | *(empty)* | public API origin, for split frontend/backend hosting |
 | `FRONTEND_URL`, `CORS_ORIGINS` | same origin | set when hosting the frontend separately |
 | `FRONTEND_DIST` | `./frontend/dist` | compiled frontend to serve |
+
+## Face detection, and a measured limitation
+
+`FaceDetector` uses the Haar cascade bundled inside the `opencv-python` wheel,
+so it resolves identically on macOS, Windows, Linux and in Docker without a
+vendored XML file. dlib is used when installed and is optional. Detection
+parameters are deliberately left at the values the shipped model was trained
+with, because loosening them changes the feature geometry and measurably hurts
+accuracy.
+
+**Measured on the shipped dataset, Haar detects a face in 0 of 150 images.**
+Every training feature was therefore computed from a whole 128x128 frame rather
+than a face crop. Two consequences, both handled explicitly:
+
+- `FACE_POLICY=whole_frame` (default) classifies the whole frame when no face is
+  found, which keeps inference in the same distribution as training. Every
+  response reports `face_detected` and `faces_detected` so a client can tell.
+- `FACE_POLICY=require_face` refuses such frames with
+  `{"success": false, "status": "no_face_detected"}` and never marks attendance.
+  Safer, but recall will collapse until the dataset is re-captured with
+  detectable faces, because the model has never seen a crop.
+
+When several faces are present the **largest box wins** (deterministic), and
+`faces_detected` reports the count so the UI can ask the person to stand alone.
+
+This also means live camera frames, which usually *do* contain a detectable face,
+are preprocessed differently from the training images. That path could not be
+measured here, because it needs real webcam captures - if the demo accuracy
+looks wrong on camera but right on uploaded photos, set `FACE_POLICY` and
+re-measure.
+
+## Retraining
+
+`train.py` is the training entry point. It is a full classical-ML pipeline:
+preprocess -> extract 1805 features -> stratified 60/20/20 split -> fit scaler
+and feature selector **on the training split only** -> tune each classical
+model -> select on validation weighted F1 -> evaluate once on the held-out test
+set -> save artifacts -> log real metrics to MLflow.
+
+```bash
+python3 train.py --output-dir models_v2   # never overwrites models/ by accident
+```
+
+`--output-dir` matters: the shipped `models/*.pkl` are the artifacts the API
+loads, and the default `models` would overwrite them. Test selection never
+considers `*_test` rows, and the scaler/selector are fitted on `X_train` only;
+`tests/test_training.py` guards both.
+
+## Testing
+
+```bash
+python3 -m pytest -q          # backend, 108 tests
+cd frontend && npm test       # frontend, 19 tests
+cd frontend && npm run build
+ruff check .                  # critical lint rules
+```
+
+No test needs a real student image or a private credential. The suite
+synthesises a small non-biometric dataset when `data/raw` is empty and skips the
+claims that genuinely require real faces.
+
 
 ## Project layout
 

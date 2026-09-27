@@ -1,0 +1,107 @@
+name: CD
+
+# Publishes the exact image that CI already validated. It never builds
+# untested code: the Dockerfile is re-run here, but the same commit has to have
+# passed the CI workflow first.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag to publish (defaults to the current ref)"
+        required: false
+        type: string
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  publish:
+    name: Build and publish image
+    runs-on: ubuntu-latest
+
+    # Least privilege: read the repo, write packages, nothing else.
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify CI passed for this commit
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Waiting for the CI run to conclude for ${{ github.sha }}"
+          gh run list --commit "${{ github.sha }}" --workflow CI --json conclusion,status \
+            --jq '.[0] | {status, conclusion}'
+          conclusion=$(gh run list --commit "${{ github.sha }}" --workflow CI \
+            --json conclusion --jq '.[0].conclusion')
+          if [ "$conclusion" != "success" ]; then
+            echo "::error::CI has not passed for this commit (conclusion=$conclusion)"
+            exit 1
+          fi
+          echo "CI passed; publishing."
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to the GitHub Container Registry
+        # Authenticates with the automatic GITHUB_TOKEN, so no long-lived
+        # secret is stored in the repository.
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,format=long
+            type=ref,event=branch
+            type=ref,event=tag
+            type=sha,format=long,prefix=pr-
+
+      - name: Build and push
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Summary
+        run: |
+          {
+            echo "### Container image published"
+            echo ""
+            echo '```'
+            echo "${{ steps.meta.outputs.tags }}"
+            echo '```'
+            echo ""
+            echo "Pull it with:"
+            echo '```bash'
+            echo "docker pull ${{ steps.meta.outputs.tags }}"
+            echo "```"
+            echo ""
+            echo "Then start the app with a persistent volume mounted at /app/data"
+            echo "(SQLite database and the dataset both live there):"
+            echo '```bash'
+            echo "docker run -d -p 8000:8000 -v sas-data:/app/data ${{ steps.meta.outputs.tags }}"
+            echo "```"
+          } >> "$GITHUB_STEP_SUMMARY"

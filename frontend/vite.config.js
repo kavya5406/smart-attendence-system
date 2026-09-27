@@ -23,4 +23,14 @@ export default defineConfig({
     outDir: 'dist',
     sourcemap: false,
   },
+  test: {
+    // Node environment on purpose: these are source- and client-contract
+    // tests that need no DOM, so they run identically on macOS, Windows, Linux
+    // and in CI without pulling in a headless browser. Component tests would
+    // require jsdom, which is deliberately not a dependency.
+    environment: 'node',
+    globals: true,
+    include: ['src/**/*.test.{js,jsx}'],
+    restoreMocks: true,
+  },
 });

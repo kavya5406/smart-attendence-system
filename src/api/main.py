@@ -121,11 +121,63 @@ def _student_row(row: dict, image_count: int) -> dict:
 # helpers
 # ----------------------------------------------------------------------
 def _predict_image(app: FastAPI, image: np.ndarray) -> schemas.PredictionResponse:
-    """Run the full recognition pipeline for one BGR image."""
+    """Run the full recognition pipeline for one BGR image.
+
+    Face handling, and why the fallback exists
+    ------------------------------------------
+    The detector is Haar (optionally dlib). On the registered dataset it finds
+    a face in 0 of 150 images, so the shipped model was trained purely on
+    whole 128x128 frames. Under FACE_POLICY=whole_frame (the default) an
+    undetected frame is passed through whole, which keeps inference in the
+    same distribution as training. Under FACE_POLICY=require_face the same
+    frame is refused with status "no_face_detected" and attendance is never
+    touched.
+
+    When several faces are present the largest box wins. The choice is
+    deterministic and the count is returned as ``faces_detected`` so a client
+    can warn the user to stand alone.
+    """
     start = time.time()
 
-    face = app.state.face_detector.crop_face(image)
+    faces = app.state.face_detector.detect_multiple(image)
+    face_count = len(faces)
+    if face_count > 1:
+        # Deterministic rule: biggest box wins.
+        bbox = max(faces, key=lambda b: b[2] * b[3])
+        face = app.state.face_detector.crop_from_bbox(image, bbox)
+    elif face_count == 1:
+        face = app.state.face_detector.crop_from_bbox(image, faces[0])
+    else:
+        face = None
+
     face_detected = face is not None
+    policy = app.state.settings.face_policy
+
+    if face is None and policy == "require_face":
+        latency_ms = (time.time() - start) * 1000
+        PREDICTIONS.labels(outcome="no_face").inc()
+        PREDICTION_LATENCY.observe(latency_ms / 1000.0)
+        return schemas.PredictionResponse(
+            success=False,
+            status="no_face_detected",
+            student_id=None,
+            student_name=None,
+            confidence=None,
+            similarity=None,
+            threshold=None,
+            attendance_marked=False,
+            already_marked=False,
+            message=(
+                "No face detected. Move into frame, face the camera and "
+                "improve the lighting. Attendance was not recorded."
+            ),
+            face_detected=False,
+            faces_detected=0,
+            face_policy=policy,
+            latency_ms=round(latency_ms, 2),
+            verification_reason="no_face_detected",
+        )
+
     # Matches train.py: fall back to the whole frame when no face is found.
     source = face if face is not None else image
 
@@ -150,6 +202,7 @@ def _predict_image(app: FastAPI, image: np.ndarray) -> schemas.PredictionRespons
             model_student_id=model_student_id,
         )
         return schemas.PredictionResponse(
+            success=False,
             status="unknown",
             student_id=None,
             student_name=None,
@@ -159,7 +212,8 @@ def _predict_image(app: FastAPI, image: np.ndarray) -> schemas.PredictionRespons
             attendance_marked=False,
             message="UNKNOWN STUDENT. Please try again.",
             face_detected=face_detected,
-            model_student_id=model_student_id,
+            faces_detected=face_count,
+            face_policy=policy,
             model_agreed=verification.student_id == model_student_id,
             latency_ms=round(latency_ms, 2),
             probabilities=diagnostics.get("probabilities"),
@@ -189,6 +243,7 @@ def _predict_image(app: FastAPI, image: np.ndarray) -> schemas.PredictionRespons
     )
 
     return schemas.PredictionResponse(
+        success=True,
         status="recognized",
         student_id=verification.student_id,
         student_name=student_name,
@@ -203,6 +258,8 @@ def _predict_image(app: FastAPI, image: np.ndarray) -> schemas.PredictionRespons
             else "Attendance marked successfully."
         ),
         face_detected=face_detected,
+        faces_detected=face_count,
+        face_policy=policy,
         model_student_id=model_student_id,
         model_agreed=verification.student_id == model_student_id,
         latency_ms=round(latency_ms, 2),
@@ -269,6 +326,10 @@ def _register_routes(app: FastAPI) -> None:
             model_type=info.get("model_type"),
             known_students=info.get("known_students", []),
             dataset_images=dataset_images,
+            face_policy=app.state.settings.face_policy,
+            recognition_threshold=verifier.threshold
+            if getattr(verifier, "threshold", None) is not None
+            else app.state.settings.recognition_threshold,
             errors=predictor.load_errors,
         )
 
@@ -577,6 +638,27 @@ def _register_routes(app: FastAPI) -> None:
             return FileResponse(index_file)
 
     app.include_router(router, prefix="/api")
+
+    # Root aliases for the endpoints that are safe to expose twice.
+    # `GET /health` and `GET /dashboard/stats` do not collide with an SPA page,
+    # so both spellings work. The data routes deliberately do NOT get an alias:
+    # /students, /attendance and /dataset are frontend pages, and shadowing
+    # them here is exactly the bug this prefix layout was introduced to fix.
+    app.add_api_route(
+        "/health",
+        health,
+        methods=["GET"],
+        response_model=schemas.HealthResponse,
+        include_in_schema=False,
+    )
+    app.add_api_route(
+        "/dashboard/stats",
+        dashboard_stats,
+        methods=["GET"],
+        response_model=schemas.DashboardStats,
+        include_in_schema=False,
+    )
+
     _mount_frontend(app)
 
 

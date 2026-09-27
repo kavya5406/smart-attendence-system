@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -21,6 +22,7 @@ from typing import Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 import yaml
+from sklearn.model_selection import train_test_split
 
 from ..core.settings import get_settings
 
@@ -345,3 +347,127 @@ class DatasetManager:
                 path.rmdir()
         folder.rmdir()
         return True
+
+
+# ----------------------------------------------------------------------
+# train / validation / test splitting
+# ----------------------------------------------------------------------
+def split_dataset(
+    X: np.ndarray,
+    y: np.ndarray,
+    test_size: float = 0.2,
+    val_size: float = 0.2,
+    random_state: int = 42,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Split ``X``/``y`` into stratified train, validation and test sets.
+
+    Returns ``(X_train, X_val, X_test, y_train, y_val, y_test)``.
+
+    Leakage rules enforced here:
+
+    * The split is performed on the *indices* only, so the returned arrays are
+      never shuffled out of sync with their labels.
+    * The split is **stratified** on the label so every student is represented
+      in all three sets. With 5 students and 30 images each this is the
+      difference between a meaningful score and an ``UnboundLocalError``
+      further down the pipeline.
+    * Splitting happens *before* anything is fitted. The caller receives raw
+      ``X_train``/``X_val``/``X_test`` and is responsible for fitting the
+      scaler and the feature selector on ``X_train`` alone (see
+      ``src/models/train.py``).
+
+    This is a pure function of its inputs: it never touches the filesystem and
+    never reads the dataset directory, so it is safe to unit test and to reuse
+    from a notebook.
+    """
+    X = np.asarray(X)
+    y = np.asarray(y)
+
+    if X.shape[0] != y.shape[0]:
+        raise ValueError(
+            f"X and y length mismatch: X has {X.shape[0]} rows, y has {len(y)}"
+        )
+    if X.ndim != 2:
+        raise ValueError(f"X must be 2-dimensional, got shape {X.shape}")
+
+    n_samples = X.shape[0]
+    n_classes, class_counts = np.unique(y, return_counts=True)
+    min_class = int(class_counts.min())
+
+    # Stratification needs at least `n_splits` members per class. Shrink the
+    # test fraction if the dataset is too small, and fall back to a plain
+    # (non-stratified) split rather than raising on a tiny dataset.
+    if min_class < 2:
+        raise ValueError(
+            "Every student needs at least 2 usable images to build a test set; "
+            f"the smallest class has {min_class}. Re-register more images or "
+            "collect them with the Dataset page."
+        )
+
+    test_size = float(test_size)
+    val_size = float(val_size)
+    if test_size <= 0 or val_size <= 0 or test_size + val_size >= 1:
+        raise ValueError(
+            f"Invalid split fractions: test_size={test_size}, val_size={val_size} "
+            "(both must be > 0 and sum to < 1)"
+        )
+
+    # The validation split is carved out of the *training* portion, never out
+    # of the test portion. `val_fraction` is therefore expressed relative to
+    # what is left after the test set has been held back.
+    remaining = 1.0 - test_size
+    if remaining <= 0:
+        raise ValueError("test_size leaves no data for train/validation")
+
+    val_fraction = val_size / remaining
+    # A two-way stratified split of the remainder needs every class to still
+    # have >= 2 members in it.
+    if min_class >= 3:
+        per_class_in_remainder = min_class - int(round(min_class * test_size))
+        max_val_fraction = 1.0 - 1.0 / per_class_in_remainder
+        val_fraction = min(val_fraction, max_val_fraction)
+    else:
+        # Fewer than 3 images for the smallest student: a separate validation
+        # split is impossible without leaking the training set into it.
+        val_fraction = 0.0
+        warnings.warn(
+            f"The smallest student class has only {min_class} usable image(s), "
+            "so no separate validation set can be held out. Validation scores "
+            "will be computed on the training data and must NOT be reported as "
+            "held-out results. Register more images per student "
+            "(>= 3) for a meaningful validation split.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+
+    try:
+        # Step 1 - hold the test set back.
+        X_tmp, X_test, y_tmp, y_test = train_test_split(
+            X, y, test_size=test_size, random_state=random_state, stratify=y
+        )
+        # Step 2 - carve validation out of the training portion.
+        if val_fraction > 0:
+            X_train, X_val, y_train, y_val = train_test_split(
+                X_tmp, y_tmp,
+                test_size=val_fraction,
+                random_state=random_state,
+                stratify=y_tmp,
+            )
+        else:
+            X_train, y_train = X_tmp, y_tmp
+            X_val, y_val = X_tmp, y_tmp
+    except ValueError:
+        # Too few samples per class for stratification: degrade to an
+        # unstratified split instead of failing the whole run.
+        X_tmp, X_test, y_tmp, y_test = train_test_split(
+            X, y, test_size=test_size, random_state=random_state
+        )
+        if val_fraction > 0:
+            X_train, X_val, y_train, y_val = train_test_split(
+                X_tmp, y_tmp, test_size=val_fraction, random_state=random_state
+            )
+        else:
+            X_train, y_train = X_tmp, y_tmp
+            X_val, y_val = X_tmp, y_tmp
+
+    return X_train, X_val, X_test, y_train, y_val, y_test

@@ -11,7 +11,21 @@ from pydantic import BaseModel, Field
 # prediction
 # ----------------------------------------------------------------------
 class PredictionResponse(BaseModel):
-    status: str = Field(..., description="recognized | unknown | no_face | error")
+    success: bool = Field(
+        True,
+        description=(
+            "False whenever attendance was NOT recorded for a student: unknown "
+            "face, no face detected, or an error. Check this before showing a "
+            "success message in the UI."
+        ),
+    )
+    status: str = Field(
+        ...,
+        description=(
+            "recognized | unknown | no_face_detected | invalid_image | error. "
+            "'no_face_detected' only occurs when FACE_POLICY=require_face."
+        ),
+    )
     student_id: Optional[str] = None
     student_name: Optional[str] = None
     confidence: Optional[float] = Field(
@@ -29,7 +43,24 @@ class PredictionResponse(BaseModel):
     attendance_marked: bool = False
     already_marked: bool = False
     message: str = ""
-    face_detected: bool = True
+    face_detected: bool = Field(
+        True,
+        description=(
+            "False when the detector found no face and the whole frame was "
+            "used instead. Set FACE_POLICY=require_face to reject such frames."
+        ),
+    )
+    faces_detected: int = Field(
+        0,
+        description=(
+            "Number of faces found by the detector. When more than one is "
+            "present the largest box wins (deterministic rule)."
+        ),
+    )
+    face_policy: str = Field(
+        "whole_frame",
+        description="'whole_frame' (training-consistent) or 'require_face'.",
+    )
     model_student_id: Optional[str] = Field(
         None, description="Student id predicted by the trained model before verification."
     )
@@ -144,4 +175,6 @@ class HealthResponse(BaseModel):
     model_type: Optional[str] = None
     known_students: List[str] = []
     dataset_images: int = 0
+    face_policy: str = "whole_frame"
+    recognition_threshold: Optional[float] = None
     errors: Dict[str, str] = {}

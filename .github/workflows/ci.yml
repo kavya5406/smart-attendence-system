@@ -6,6 +6,7 @@ on:
   pull_request:
     branches: [main]
 
+# Least privilege: CI only ever needs to read the repository.
 permissions:
   contents: read
 
@@ -20,7 +21,10 @@ jobs:
           python-version: "3.11"
           cache: pip
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install ruff==0.16.9
       - name: Install OpenCV system libraries
         run: sudo apt-get update && sudo apt-get install -y libgl1 libglib2.0-0
       - name: Build the frontend
@@ -31,8 +35,81 @@ jobs:
           npm ci --no-audit --no-fund
           npm run build
           cd ..
+      - name: Lint
+        # Critical rules only: syntax errors, undefined names, broken logic.
+        run: ruff check .
       - name: Byte-compile the package
-        run: python -m compileall -q src
+        run: python -m compileall -q src train.py
+      - name: Validate the preprocessing pipeline
+        run: |
+          python - <<'PY'
+          import numpy as np
+          from src.preprocessing.image_processor import ImageProcessor
+          from src.preprocessing.face_detector import FaceDetector
+
+          # The Haar cascade must resolve on every platform without a vendored
+          # XML file: OpenCV ships it inside the wheel.
+          detector = FaceDetector(use_dlib=False)
+          assert detector.face_cascade is not None, "Haar cascade not found"
+          assert not detector.face_cascade.empty(), "Haar cascade failed to load"
+
+          # Preprocessing must be deterministic and fixed-size.
+          proc = ImageProcessor()
+          rng = np.random.default_rng(0)
+          frame = rng.integers(0, 255, (200, 160, 3), dtype=np.uint8)
+          out = proc.preprocess(frame)
+          assert out.shape == (64, 64), f"expected (64, 64), got {out.shape}"
+          again = proc.preprocess(frame)
+          assert np.array_equal(out, again), "preprocessing is not deterministic"
+          print("preprocessing ok:", out.shape, out.dtype)
+          PY
+      - name: Validate feature extraction
+        run: |
+          python - <<'PY'
+          import numpy as np
+          from src.preprocessing.image_processor import ImageProcessor
+          from src.features.feature_extractor import FeatureExtractor
+
+          proc = ImageProcessor()
+          fe = FeatureExtractor()
+          frame = np.full((128, 128, 3), 128, dtype=np.uint8)
+          processed = proc.preprocess(frame)
+          vec = fe.extract_all(processed)
+          vec = np.asarray(vec, dtype=float)
+          assert vec.ndim == 1, vec.shape
+          assert vec.size == 1805, f"expected 1805 raw features, got {vec.size}"
+          assert np.isfinite(vec).all(), "non-finite values in the feature vector"
+          print("features ok:", vec.size)
+          PY
+      - name: Validate model artifact loading
+        run: |
+          python - <<'PY'
+          import joblib
+          import numpy as np
+
+          model = joblib.load("models/best_model.pkl")
+          scaler = joblib.load("models/scaler.pkl")
+          selector = joblib.load("models/feature_selector.pkl")
+          encoder = joblib.load("models/best_model_label_encoder.pkl")
+
+          print("model class      :", type(model).__name__)
+          print("raw feature dim  :", len(scaler.mean_))
+          print("selected dim     :", selector.transform(np.zeros((1, len(scaler.mean_)))).shape[1])
+          print("known students   :", list(encoder.classes_))
+
+          assert len(scaler.mean_) == 1805, "scaler does not expect 1805 raw features"
+          selected = selector.transform(np.zeros((1, len(scaler.mean_)))).shape[1]
+          assert selected == model.n_features_in_, (
+              f"selector yields {selected} features but the model expects "
+              f"{model.n_features_in_}"
+          )
+          print("artifacts are consistent")
+          PY
+      - name: Validate the API imports and the training entry point
+        run: |
+          python -c "import src.api.main; print('api imports ok')"
+          python -c "import train; print('training entry point imports ok')"
+          python -c "from src.data.dataset import split_dataset; print('split_dataset ok')"
       - name: Run the test suite
         run: python -m pytest tests/ -q --tb=short
       - name: Check that no face images or databases are tracked
@@ -44,7 +121,7 @@ jobs:
           echo "no tracked biometric data or databases"
 
   frontend:
-    name: Frontend build
+    name: Frontend tests and build
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -57,16 +134,55 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci --no-audit --no-fund
+      - name: Run frontend tests
+        run: npm test
       - run: npm run build
+      - name: Fail if the bundle hardcodes a local origin
+        run: |
+          if grep -R "localhost:8000" dist/ ; then
+            echo "::error::The production bundle hardcodes http://localhost:8000"
+            exit 1
+          fi
+          echo "bundle contains no hardcoded backend origin"
       - uses: actions/upload-artifact@v4
         with:
           name: frontend-dist
           path: frontend/dist
           retention-days: 7
 
-  compose:
-    name: Compose config
+  docker:
+    name: Docker build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: docker compose config --quiet
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+      # Building the real image here is what proves the Dockerfile works on a
+      # clean machine, with no local paths and no pre-existing node_modules.
+      - name: Build the image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: false
+          load: true
+          tags: smart-attendance:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Validate the compose file
+        run: docker compose config --quiet
+      - name: Smoke-test the container
+        run: |
+          docker run -d --name sas-ci -p 8000:8000 smart-attendance:ci
+          for i in $(seq 1 40); do
+            sleep 2
+            if curl -fsS http://127.0.0.1:8000/health > /dev/null; then break; fi
+          done
+          curl -fsS http://127.0.0.1:8000/health
+          echo
+          curl -fsS http://127.0.0.1:8000/api/health
+          echo
+          curl -fsS -o /dev/null -w "spa status: %{http_code}\n" http://127.0.0.1:8000/
+          curl -fsS http://127.0.0.1:8000/metrics | head -5
+          docker logs sas-ci 2>&1 | tail -20
+          docker rm -f sas-ci

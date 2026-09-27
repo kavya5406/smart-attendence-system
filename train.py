@@ -11,7 +11,6 @@ from src.models.train import ModelTrainer
 from src.models.evaluator import ModelEvaluator
 from src.mlops.mlflow_tracker import MLflowTracker
 from src.mlops.model_versioning import ModelVersioning
-from src.data.dataset import FaceDataset
 from src.features.feature_extractor import FeatureExtractor
 from src.preprocessing.face_detector import FaceDetector
 from src.preprocessing.image_processor import ImageProcessor
@@ -20,7 +19,7 @@ import numpy as np
 from tqdm import tqdm
 
 
-def train(config_path: str = "config/config.yaml"):
+def train(config_path: str = "config/config.yaml", output_dir: str = "models"):
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
 
@@ -103,7 +102,7 @@ def train(config_path: str = "config/config.yaml"):
         trainer = ModelTrainer(config_path=config_path)
         results = trainer.train_all(X, y)
 
-        trainer.save_model("models")
+        artifact_paths = trainer.save_model(output_dir)
 
         best_model_name = trainer.best_model_name
         best_report = trainer.evaluator.results.get(best_model_name, {})
@@ -122,23 +121,55 @@ def train(config_path: str = "config/config.yaml"):
                     if isinstance(v, (int, float))
                 })
 
+        # Record the preprocessing configuration alongside the scores so a
+        # run can be reproduced, plus the actual feature dimensions.
+        mlflow_tracker.log_params({
+            "target_size": str(tuple(config["preprocessing"]["target_size"])),
+            "apply_hist_equalization": config["preprocessing"]["apply_hist_equalization"],
+            "apply_gaussian_blur": config["preprocessing"]["apply_gaussian_blur"],
+            "face_detection_model": config["preprocessing"]["face_detection_model"],
+            "use_dlib_detector": config["preprocessing"]["use_dlib_detector"],
+            "raw_feature_dim": int(X.shape[1]),
+            "selected_feature_dim": int(
+                results[best_model_name]["model"].n_features_in_
+            ),
+            "best_model": best_model_name,
+            "test_size": config["model_training"]["test_size"],
+            "val_size": config["model_training"]["val_size"],
+            "random_state": config["model_training"]["random_state"],
+        })
+        mlflow_tracker.log_model(trainer.best_model, "best_model")
+        for key, path in artifact_paths.items():
+            if Path(path).exists():
+                mlflow.log_artifact(path)
+
         model_versioner = ModelVersioning()
         model_versioner.register_model(
-            model_path="models/best_model.pkl",
+            model_path=artifact_paths["model"],
             model_name=best_model_name,
             metrics=best_report,
         )
 
         print(f"\nBest model: {best_model_name}")
-        print(f"Weighted F1: {best_report.get('f1_weighted', 'N/A'):.4f}")
+        print(f"Weighted F1: {best_report.get('f1_weighted', float('nan')):.4f}")
+        print(f"Artifacts written to {output_dir}/")
 
-        comparison = trainer.evaluator.compare_models()
-        print("\nModel comparison:")
+        comparison = trainer.evaluator.compare_models(include_test=True)
+        print("\nModel comparison (validation and held-out test):")
         print(comparison.to_string(index=False))
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="config/config.yaml")
+    parser.add_argument(
+        "--output-dir",
+        default="models",
+        help=(
+            "Where to write the four artifacts. Use a scratch directory to "
+            "evaluate a retrain without overwriting the shipped "
+            "models/*.pkl that the API loads."
+        ),
+    )
     args = parser.parse_args()
-    train(args.config)
+    train(args.config, args.output_dir)
