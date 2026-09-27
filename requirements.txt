@@ -8,7 +8,11 @@ scipy>=1.16,<2
 scikit-learn==1.7.2
 scikit-image>=0.24.0
 opencv-python>=4.10.0
-opencv-contrib-python>=4.10.0
+# NOTE: do not also install opencv-contrib-python. Both packages write into the
+# same `cv2` directory and overwrite each other, which on a fresh Linux install
+# left `cv2/data` without the Haar cascade XMLs - so face detection was silently
+# disabled in CI and in Docker. Nothing in this project uses a contrib module;
+# the cascades it needs are vendored in src/preprocessing/cascades/.
 
 xgboost>=2.1.0
 lightgbm>=4.5.0

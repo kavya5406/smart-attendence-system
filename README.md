@@ -162,7 +162,7 @@ is a single origin and a single URL.
 ## Tests
 
 ```bash
-python -m pytest tests/ -q     # backend: 108 passed
+python -m pytest tests/ -q     # backend: 122 passed
 cd frontend && npm test        # frontend: 19 passed
 ruff check .                   # critical lint rules
 cd frontend && npm run build
@@ -282,12 +282,27 @@ the same file works on macOS, Windows and Linux. The main values:
 
 ## Face detection, and a measured limitation
 
-`FaceDetector` uses the Haar cascade bundled inside the `opencv-python` wheel,
-so it resolves identically on macOS, Windows, Linux and in Docker without a
-vendored XML file. dlib is used when installed and is optional. Detection
-parameters are deliberately left at the values the shipped model was trained
-with, because loosening them changes the feature geometry and measurably hurts
-accuracy.
+`FaceDetector` uses a Haar cascade resolved through
+`src/preprocessing/cascade_locator.py`, which prefers the copies **vendored in
+`src/preprocessing/cascades/`** and only then falls back to `cv2.data`. This
+matters: `requirements.txt` used to pin both `opencv-python` and
+`opencv-contrib-python`, and because both write into the same `cv2` directory a
+fresh Linux install ended up with an incomplete `cv2/data`. `CascadeClassifier`
+then returned an *empty* classifier, so face detection was silently disabled in
+CI and in Docker while `/api/health` still reported `healthy`. `contrib` is now
+removed (nothing in the project uses a contrib module) and the cascades are
+vendored, so detection behaves identically on macOS, Windows, Linux and Docker.
+`tests/test_cascades.py` covers it, including a simulated broken `cv2/data`.
+
+`haarcascade_mcs_nose` and `haarcascade_mcs_mouth` are **not** shipped by current
+OpenCV wheels, so the nose and mouth sub-detectors are unavailable and their
+sub-features fall back to zeros. That is deliberate: the shipped model was
+trained without them, and adding them now would change the 1805-dimensional
+feature vector and invalidate `models/`.
+
+Detection parameters are deliberately left at the values the shipped model was
+trained with, because loosening them changes the feature geometry and measurably
+hurts accuracy.
 
 **Measured on the shipped dataset, Haar detects a face in 0 of 150 images.**
 Every training feature was therefore computed from a whole 128x128 frame rather
@@ -350,7 +365,7 @@ src/core/          settings and path resolution
 src/data/          database and dataset manager
 src/features/      HOG, LBP, statistical, shape feature extractors
 src/models/        predictor wrapping the existing artifacts
-src/preprocessing/ image processor and face detector
+src/preprocessing/ image processor, face detector, vendored Haar cascades
 src/verification/  prototype verifier for unknown-face rejection
 frontend/          React + Vite single page app
 models/            the existing trained artifacts

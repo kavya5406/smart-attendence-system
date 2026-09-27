@@ -3,23 +3,33 @@ import numpy as np
 import math
 from typing import Optional
 
+from ..preprocessing.cascade_locator import load_cascade
+
 
 class GeometricFeatureExtractor:
+    """Contour-based geometry features.
+
+    ``face_cascade`` and ``eye_cascade`` are required. The nose and mouth
+    cascades are optional: they are not shipped by current OpenCV wheels and
+    were not available when the shipped model was trained, so they stay
+    ``None`` and the corresponding sub-features fall back to zeros. Adding them
+    now would change the 1805-dimensional feature vector and invalidate the
+    artifacts in ``models/``.
+    """
+
     def __init__(self):
-        self.face_cascade = cv2.CascadeClassifier(
-            cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-        )
-        self.eye_cascade = cv2.CascadeClassifier(
-            cv2.data.haarcascades + "haarcascade_eye.xml"
-        )
-        self.nose_cascade = cv2.CascadeClassifier(
-            cv2.data.haarcascades + "haarcascade_mcs_nose.xml"
-        )
-        self.mouth_cascade = cv2.CascadeClassifier(
-            cv2.data.haarcascades + "haarcascade_mcs_mouth.xml"
-        )
+        self.face_cascade = load_cascade("haarcascade_frontalface_default.xml")
+        self.eye_cascade = load_cascade("haarcascade_eye.xml")
+        self.nose_cascade = load_cascade("haarcascade_mcs_nose.xml")
+        self.mouth_cascade = load_cascade("haarcascade_mcs_mouth.xml")
+
+    @property
+    def face_detection_available(self) -> bool:
+        return self.face_cascade is not None
 
     def _get_face_bbox(self, gray: np.ndarray) -> Optional[tuple]:
+        if self.face_cascade is None:
+            return None
         faces = self.face_cascade.detectMultiScale(gray, 1.1, 5, minSize=(50, 50))
         if len(faces) == 0:
             return None
@@ -36,9 +46,20 @@ class GeometricFeatureExtractor:
         fx, fy, fw, fh = face_bbox
 
         face_roi = gray[fy:fy + fh, fx:fx + fw]
-        eyes = self.eye_cascade.detectMultiScale(face_roi, 1.1, 5, minSize=(10, 10))
-        noses = self.nose_cascade.detectMultiScale(face_roi, 1.1, 5, minSize=(10, 10))
-        mouths = self.mouth_cascade.detectMultiScale(face_roi, 1.1, 10, minSize=(15, 10))
+        # nose/mouth cascades are unavailable on current OpenCV wheels; guard
+        # each detector so a missing cascade yields no boxes instead of an
+        # AttributeError on None. The trained model never saw these features.
+        def _detect(cascade, roi, sf, mn, min_size):
+            if cascade is None:
+                return []
+            try:
+                return cascade.detectMultiScale(roi, sf, mn, minSize=min_size)
+            except Exception:
+                return []
+
+        eyes = _detect(self.eye_cascade, face_roi, 1.1, 5, (10, 10))
+        noses = _detect(self.nose_cascade, face_roi, 1.1, 5, (10, 10))
+        mouths = _detect(self.mouth_cascade, face_roi, 1.1, 10, (15, 10))
 
         features["face_width"] = fw
         features["face_height"] = fh
