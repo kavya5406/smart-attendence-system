@@ -10,5 +10,16 @@
   "recognition_threshold": 0.08,
   "registered_similarity_min": 0.0498,
   "registered_similarity_mean": 0.1794,
-  "negative_similarity_max": 0.0466
+  "negative_similarity_max": 0.0466,
+  "IMPORTANT_scope": "These numbers are measured on the REGISTERED dataset in data/raw, which is the same data the shipped model was trained on. They are in-sample figures and therefore optimistic. They describe how well the pipeline recognises images it was built from, not how it generalises to a new photograph.",
+  "held_out_test_split": {
+    "note": "From a real 60/20/20 stratified run (python train.py --output-dir <dir>) on the same 150 images. The test split is never used for model selection.",
+    "classifier_accuracy": 0.1333,
+    "classifier_f1_weighted": 0.1327,
+    "validation_accuracy": 0.3333,
+    "validation_f1_weighted": 0.3337,
+    "test_images": 30,
+    "validation_images": 30,
+    "train_images": 90
+  }
 }

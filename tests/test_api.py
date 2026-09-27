@@ -338,3 +338,99 @@ def test_static_assets_are_served(client):
     _require_frontend(client)
     index = client.get("/").text
     assert "/assets/" in index
+
+
+# ------------------------------------------------------- face policy ----
+def test_health_alias_is_available_at_the_root(client):
+    """`GET /health` must work as well as `GET /api/health`."""
+    root = client.get("/health")
+    api = client.get("/api/health")
+    assert root.status_code == 200
+    assert root.json() == api.json()
+
+
+def test_dashboard_stats_alias_is_available_at_the_root(client):
+    assert client.get("/dashboard/stats").status_code == 200
+
+
+def test_health_reports_the_face_policy_and_threshold(client):
+    body = client.get("/api/health").json()
+    assert body["face_policy"] in ("whole_frame", "require_face")
+    assert isinstance(body["recognition_threshold"], float)
+    assert body["recognition_threshold"] > 0
+
+
+def test_prediction_reports_face_detection_details(client, synthetic_dataset):
+    """Every prediction must say whether a face was found and how many.
+
+    The Haar cascade finds no face in the registered 128x128 dataset, so this
+    field is the only way a client can tell that a whole frame was classified.
+    """
+    for path in student_images(limit=1):
+        with open(path, "rb") as handle:
+            response = client.post(
+                "/api/predict", files={"file": (path.name, handle.read(), "image/jpeg")}
+            )
+        assert response.status_code == 200
+        body = response.json()
+        assert "face_detected" in body
+        assert isinstance(body["face_detected"], bool)
+        assert isinstance(body["faces_detected"], int)
+        assert body["face_policy"] in ("whole_frame", "require_face")
+        break
+    else:
+        pytest.skip("no dataset images available")
+
+
+def test_success_flag_is_false_for_an_unknown_face(client, synthetic_dataset):
+    noise = np.full((128, 128, 3), 200, dtype=np.uint8)
+    ok, encoded = cv2.imencode(".jpg", noise)
+    assert ok
+    body = client.post(
+        "/api/predict-base64", json={"image_data": _b64(encoded.tobytes())}
+    ).json()
+    assert body["status"] != "recognized"
+    assert body["success"] is False
+    assert body["attendance_marked"] is False
+    assert body["student_id"] is None
+
+
+def test_require_face_policy_rejects_a_frame_without_a_face(
+    client, monkeypatch, synthetic_dataset
+):
+    """With FACE_POLICY=require_face an undetected frame must be refused.
+
+    Runs against the real model, but forces the policy to the strict setting to
+    prove the no-face branch returns a clean, non-crashing response.
+    """
+    monkeypatch.setattr(client.app.state.settings, "face_policy", "require_face")
+
+    # A frame the strict Haar settings cannot find a face in.
+    noise = np.full((128, 128, 3), 90, dtype=np.uint8)
+    ok, encoded = cv2.imencode(".jpg", noise)
+    assert ok
+    response = client.post(
+        "/api/predict-base64", json={"image_data": _b64(encoded.tobytes())}
+    )
+    assert response.status_code == 200
+    body = response.json()
+    if body["face_detected"] is False:
+        assert body["status"] == "no_face_detected"
+        assert body["success"] is False
+        assert body["attendance_marked"] is False
+        assert body["student_id"] is None
+        assert body["face_policy"] == "require_face"
+
+
+def test_no_face_response_never_marks_attendance(client, monkeypatch, synthetic_dataset):
+    monkeypatch.setattr(client.app.state.settings, "face_policy", "require_face")
+    before = len(client.get("/api/attendance").json())
+    noise = np.full((160, 160, 3), 30, dtype=np.uint8)
+    ok, encoded = cv2.imencode(".jpg", noise)
+    assert ok
+    client.post("/api/predict-base64", json={"image_data": _b64(encoded.tobytes())})
+    assert len(client.get("/api/attendance").json()) == before
+
+
+def _b64(raw: bytes) -> str:
+    return base64.b64encode(raw).decode("ascii")

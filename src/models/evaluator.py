@@ -78,8 +78,26 @@ class ModelEvaluator:
             plt.savefig(save_path, dpi=150, bbox_inches="tight")
         plt.close()
 
-    def compare_models(self) -> pd.DataFrame:
-        df = pd.DataFrame(self.results.values())
+    def compare_models(self, include_test: bool = False) -> pd.DataFrame:
+        """Rank models by weighted F1.
+
+        Test-set rows (stored as ``"<model>_test"``) are excluded by default.
+        They describe performance on data the models never saw, so they must
+        not influence *which* model is selected - doing that is test-set
+        selection and quietly biases the final number. They are still computed
+        and reported, just not ranked.
+        """
+        if include_test:
+            rows = list(self.results.values())
+        else:
+            rows = [
+                report
+                for name, report in self.results.items()
+                if not name.endswith("_test")
+            ]
+        df = pd.DataFrame(rows)
+        if df.empty:
+            return df
         return df.sort_values("f1_weighted", ascending=False)
 
     def plot_comparison(
