@@ -1,0 +1,49 @@
+# Render blueprint for the Smart Attendance System.
+#
+# Deploys the existing Dockerfile as a Docker web service. Nothing about the
+# image changes for the host platform: it already binds 0.0.0.0:8000 and serves
+# the built SPA from the same process as the API.
+#
+# One-click deploy: https://render.com/deploy?repo=https://github.com/kavya5406/smart-attendence-system
+#
+# Required after the first deploy, because the repository never contains real
+# face images (they are git-ignored on purpose):
+#   1. POST the dataset to /api/students/upload-zip, or set DATASET_PATH to a
+#      mounted copy. Until then the app starts and stays healthy, but
+#      /api/health reports verifier_ready=false and no identity can be verified.
+#   2. The prototype cache models/prototypes.npz is rebuilt on first start from
+#      whatever is in data/raw, and is written to the disk below.
+services:
+  - type: web
+    name: smart-attendance-system
+    runtime: docker
+    dockerfilePath: ./docker/Dockerfile
+    dockerContext: .
+    plan: starter
+    healthCheckPath: /api/health
+    # Must match the port in the Dockerfile CMD.
+    autoDeploy: false
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: ENVIRONMENT
+        value: production
+      # Keep default whole-frame behaviour so predictions match how the shipped
+      # model was trained. Set to require_face to refuse frames with no detected
+      # face instead of falling back to the whole frame.
+      - key: FACE_POLICY
+        value: whole_frame
+      # Local SQLite inside the mounted disk so attendance survives restarts.
+      - key: DATABASE_URL
+        value: sqlite:////app/data/attendance.db
+      - key: DATASET_PATH
+        value: /app/data/raw
+      - key: RECOGNITION_THRESHOLD
+        value: "0.08"
+    disk:
+      # Render requires a paid plan for a persistent disk, and the disk mounts
+      # at /data. data/, the SQLite database and the prototype cache must live
+      # there or they are lost on every redeploy.
+      name: sas-data
+      mountPath: /app/data
+      sizeGB: 1

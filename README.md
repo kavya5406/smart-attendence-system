@@ -179,6 +179,18 @@ the tests that genuinely require real faces skip themselves with a reason.
 
 ## CI/CD
 
+### Deploying to Render
+
+`render.yaml` is a ready blueprint: Docker runtime, `healthCheckPath:
+/api/health`, and a 1 GB disk mounted at `/app/data` so the dataset, the SQLite
+database and `models/prototypes.npz` survive redeploys. The image already binds
+`0.0.0.0:8000` and serves the built SPA from the same process as the API, so no
+host-specific change is needed.
+
+A fresh deployment starts healthy but reports `verifier_ready=false` until a
+dataset is present, because no images are in the repository by design. Upload
+one with `POST /api/students/upload-zip`, then check `/api/health` again.
+
 `.github/workflows/ci.yml` runs on every push and pull request to `main`:
 
 - **backend** - install, build the frontend, `ruff check .`, byte-compile, then
@@ -254,6 +266,22 @@ Face images are biometric personal data.
 
 Before deploying with real faces, make sure the storage behind it is access
 controlled, and get consent from the people in the dataset.
+
+### Unresolved: face images in Git history
+
+**The current tree is clean, but 227 face-image blobs from the initial commit
+(`00f614b`) are still publicly retrievable from this repository's history.**
+`data/raw` is git-ignored going forward and CI fails if an image is ever tracked,
+but that only protects new commits - the old blobs are still reachable:
+
+```bash
+git log --all --diff-filter=A --name-only -- '*.jpg' '*.png'
+```
+
+This is a known, deliberately accepted risk rather than a fixed problem. If it
+ever needs to be closed, the options are to make the repository private, or to
+rewrite history and drop the images - which requires a force-push. Anyone who
+already cloned the repository before that point still has a local copy.
 
 ## Dependency pinning
 
