@@ -162,7 +162,7 @@ is a single origin and a single URL.
 ## Tests
 
 ```bash
-python -m pytest tests/ -q     # backend: 122 passed
+python -m pytest tests/ -q     # backend: 127 passed
 cd frontend && npm test        # frontend: 19 passed
 ruff check .                   # critical lint rules
 cd frontend && npm run build
@@ -292,6 +292,14 @@ then returned an *empty* classifier, so face detection was silently disabled in
 CI and in Docker while `/api/health` still reported `healthy`. `contrib` is now
 removed (nothing in the project uses a contrib module) and the cascades are
 vendored, so detection behaves identically on macOS, Windows, Linux and Docker.
+
+`opencv-python` is additionally pinned to `<5.0.0`. OpenCV 5.0 **removed the
+legacy Haar API** - `cv2.CascadeClassifier` no longer exists and the cascade
+XMLs are not shipped. An unbounded `>=4.10.0` resolved to 5.0, which broke the
+backend with `AttributeError: module 'cv2' has no attribute 'CascadeClassifier'`
+and killed the container at startup, because `FaceDetector()` is built in the
+FastAPI startup hook. `tests/test_cascades.py` pins the constraint and asserts
+the API exists so a future bump cannot silently reintroduce the outage.
 `tests/test_cascades.py` covers it, including a simulated broken `cv2/data`.
 
 `haarcascade_mcs_nose` and `haarcascade_mcs_mouth` are **not** shipped by current

@@ -7,7 +7,11 @@ numpy>=2.0,<3
 scipy>=1.16,<2
 scikit-learn==1.7.2
 scikit-image>=0.24.0
-opencv-python>=4.10.0
+# OpenCV 5.0 REMOVED the legacy Haar API: `cv2.CascadeClassifier` no longer
+# exists and the `haarcascade_*.xml` files are not shipped. Face detection is
+# built on it, so an unbounded `opencv-python>=4.10.0` resolved to 5.0 and broke
+# the API and every container. The upper bound is required - do not remove it.
+opencv-python>=4.10.0,<5.0.0
 # NOTE: do not also install opencv-contrib-python. Both packages write into the
 # same `cv2` directory and overwrite each other, which on a fresh Linux install
 # left `cv2/data` without the Haar cascade XMLs - so face detection was silently

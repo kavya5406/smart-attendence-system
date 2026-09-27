@@ -92,7 +92,8 @@ class TestFaceDetectorUsesResolvedCascade:
 
         # face_detector binds resolve_cascade at import time, so patch it there.
         monkeypatch.setattr(fd, "resolve_cascade", lambda name: None, raising=True)
-        with pytest.warns(RuntimeWarning, match="Face detection is disabled"):
+        monkeypatch.setattr(fd, "load_cascade", lambda name: None, raising=True)
+        with pytest.warns(RuntimeWarning, match="face detection is disabled"):
             FaceDetector(use_dlib=False)
 
 
@@ -120,3 +121,55 @@ class TestFeatureExtractorsDegradeGracefully:
 
 
 import numpy as np  # noqa: E402  (used by the graceful-degradation tests above)
+
+
+class TestOpenCVSupportsHaar:
+    """Guard the dependency that face detection actually rests on.
+
+    `opencv-python>=4.10.0` resolved to OpenCV 5.0, which removed the legacy
+    Haar API: `cv2.CascadeClassifier` disappeared and the `haarcascade_*.xml`
+    files stopped shipping. Because `FaceDetector()` is constructed at app
+    startup, that took the whole API and every container down with an
+    AttributeError. requirements.txt now pins `<5.0.0`; this test makes sure a
+    future bump cannot silently reintroduce the outage.
+    """
+
+    def test_opencv_version_is_pinned_below_5(self):
+        import re
+        from pathlib import Path
+
+        req = (Path(__file__).resolve().parents[1] / "requirements.txt").read_text()
+        match = re.search(r"^opencv-python([<>=!~0-9.,\s]+)$", req, re.MULTILINE)
+        assert match, "opencv-python must be pinned in requirements.txt"
+        assert "<5" in match.group(1), (
+            "opencv-python must stay below 5.0.0: OpenCV 5.0 removed "
+            "cv2.CascadeClassifier and the haarcascade XML files"
+        )
+
+    def test_contrib_python_is_not_installed(self):
+        from pathlib import Path
+
+        req = (Path(__file__).resolve().parents[1] / "requirements.txt").read_text()
+        active = [
+            line for line in req.splitlines()
+            if line.strip() and not line.strip().startswith("#")
+        ]
+        assert not any("opencv-contrib-python" in line for line in active), (
+            "opencv-contrib-python conflicts with opencv-python over the cv2 "
+            "directory and can strip the cascade data files"
+        )
+
+    def test_cascadeclassifier_api_exists(self):
+        assert hasattr(cv2, "CascadeClassifier"), (
+            "this OpenCV build has no CascadeClassifier - the legacy Haar API "
+            "was removed in OpenCV 5.0, so pin opencv-python<5.0.0"
+        )
+
+    def test_loaded_cascade_is_functional(self):
+        cascade = load_cascade("haarcascade_frontalface_default.xml")
+        assert cascade is not None and not cascade.empty()
+
+    def test_face_detector_startup_does_not_raise(self):
+        """The API constructs FaceDetector at startup; it must never raise."""
+        detector = FaceDetector(use_dlib=False)
+        assert detector.face_cascade is not None
