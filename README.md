@@ -162,7 +162,7 @@ is a single origin and a single URL.
 ## Tests
 
 ```bash
-python -m pytest tests/ -q     # backend: 127 passed
+python -m pytest tests/ -q     # backend: 128 passed (fresh clone: 120 passed, 8 skipped)
 cd frontend && npm test        # frontend: 19 passed
 ruff check .                   # critical lint rules
 cd frontend && npm run build
