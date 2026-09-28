@@ -86,3 +86,30 @@ class ModelVersioning:
                 if e["model_name"] == model_name
             ]
         return registry["models"]
+    def get_latest_model_entry(self, model_name: str):
+        registry = self._load_registry()
+
+        latest_version = registry["latest"].get(model_name)
+
+        if latest_version is None:
+            return None
+
+        for entry in registry["models"]:
+            if (
+                entry["model_name"] == model_name
+                and entry["version"] == latest_version
+            ):
+                return entry
+
+        return None
+
+    def get_latest_model_entry_global(self):
+        registry = self._load_registry()
+
+        if not registry["models"]:
+            return None
+
+        return max(
+            registry["models"],
+            key=lambda entry: entry.get("timestamp", "")
+        )
